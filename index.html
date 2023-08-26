@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Grid Visualization</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBM7E9NjSIypxtfikypGIkSQfu4T-316nI"></script>
+    <script src="https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/markerclusterer.js"></script>
+    <script>
+        var map;
+        var markerCluster;
+        var polylines = [];
+        var data;
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 7,
+                center: { lat: 37.0902, lng: -95.7129 } // Centered around the US
+            });
+
+            // Fetch the data once
+            fetch('/get_data')
+                .then(response => response.json())
+                .then(responseData => {
+                    data = responseData;
+                    // Load the initial data
+                    loadData();
+                });
+
+            // Add an event listener to load more data when the map is panned or zoomed
+            map.addListener('idle', debounce(loadData, 300));
+        }
+
+        function loadData() {
+            // Get the current bounds of the map
+            var bounds = map.getBounds();
+
+            // Clear the existing markers and polylines
+            if (markerCluster) {
+                markerCluster.clearMarkers();
+            }
+            clearPolylines();
+
+            // Create a dictionary of node IDs to latitudes and longitudes
+            var nodes = {};
+            var markers = [];
+            for (let node of data.nodes) {
+                nodes[node.id] = { lat: node.lat, lng: node.lon };
+                var latLng = new google.maps.LatLng(node.lat, node.lon);
+                if (bounds.contains(latLng)) {
+                    var marker = new google.maps.Marker({
+                        position: latLng,
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 5,
+                            fillColor: "#0000FF",
+                            fillOpacity: 1.0,
+                            strokeWeight: 0.4
+                        }
+                    });
+                    markers.push(marker);
+                }
+            }
+
+            // Add a marker clusterer to manage the markers.
+            markerCluster = new MarkerClusterer(map, markers, { imagePath: 'https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/m' });
+
+            for (let edge of data.edges) {
+                var from = nodes[edge.from];
+                var to = nodes[edge.to];
+                var path = [from, to];
+                var polyline = new google.maps.Polyline({
+                    path: path,
+                    strokeColor: '#000000',
+                    strokeOpacity: 1.0,
+                    strokeWeight: 2
+                });
+                var pathBounds = new google.maps.LatLngBounds();
+                pathBounds.extend(from);
+                pathBounds.extend(to);
+                if (bounds.intersects(pathBounds)) {
+                    polyline.setMap(map);
+                    polylines.push(polyline);
+                }
+            }
+        }
+
+        function clearPolylines() {
+            for (var i = 0; i < polylines.length; i++) {
+                polylines[i].setMap(null);
+            }
+            polylines = [];
+        }
+
+        function debounce(func, wait) {
+            var timeout;
+            return function () {
+                var context = this, args = arguments;
+                var later = function () {
+                    timeout = null;
+                    func.apply(context, args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        };
+    </script>
+</head>
+
+<body onload="initMap()">
+    <div id="map" style="height: 800px; width: 100%;"></div>
+</body>
+
+</html>
