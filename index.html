@@ -10,6 +10,7 @@
         var markerCluster;
         var polylines = [];
         var data;
+        var infowindow;
 
         function initMap() {
             map = new google.maps.Map(document.getElementById('map'), {
@@ -17,20 +18,84 @@
                 center: { lat: 37.0902, lng: -95.7129 } // Centered around the US
             });
 
+            infowindow = new google.maps.InfoWindow();
+
             // Fetch the data once
+            fetchData();
+
+            // Add an event listener to update the markers and polylines when the map is panned or zoomed
+            map.addListener('idle', debounce(updateData, 300));
+        }
+
+        function fetchData() {
             fetch('/get_data')
                 .then(response => response.json())
                 .then(responseData => {
                     data = responseData;
+                    console.log(data);
                     // Load the initial data
                     loadData();
                 });
-
-            // Add an event listener to load more data when the map is panned or zoomed
-            map.addListener('idle', debounce(loadData, 300));
         }
 
         function loadData() {
+            // Get the current bounds of the map
+            var bounds = map.getBounds();
+
+            // Create a dictionary of node IDs to latitudes and longitudes
+            var nodes = {};
+            var markers = [];
+            for (let node of data.nodes) {
+                nodes[node.id] = { lat: node.lat, lng: node.lon };
+                var latLng = new google.maps.LatLng(node.lat, node.lon);
+                if (bounds.contains(latLng)) {
+                    var marker = new google.maps.Marker({
+                        position: latLng,
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 5,
+                            fillColor: "#0000FF",
+                            fillOpacity: 1.0,
+                            strokeWeight: 0.4
+                        }
+                    });
+                    // add click event listener to the marker
+                    google.maps.event.addListener(marker, 'click', (function(marker, node) {
+                        return function() {
+                            var content = '<div><strong>' + (node.name || 'No name') + '</strong><br>' + 'Operator: ' + (node.operator || 'No operator') + '</div>';
+                            infowindow.setContent(content);
+                            infowindow.open(map, marker);
+                        }
+                    })(marker, node));
+                    
+                    markers.push(marker);
+                }
+            }
+
+            // Add a marker clusterer to manage the markers.
+            markerCluster = new MarkerClusterer(map, markers, { imagePath: 'https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/m' });
+
+            for (let edge of data.edges) {
+                var from = nodes[edge.from];
+                var to = nodes[edge.to];
+                var path = [from, to];
+                var polyline = new google.maps.Polyline({
+                    path: path,
+                    strokeColor: '#000000',
+                    strokeOpacity: 1.0,
+                    strokeWeight: 2
+                });
+                var pathBounds = new google.maps.LatLngBounds();
+                pathBounds.extend(from);
+                pathBounds.extend(to);
+                if (bounds.intersects(pathBounds)) {
+                    polyline.setMap(map);
+                    polylines.push(polyline);
+                }
+            }
+        }
+
+        function updateData() {
             // Get the current bounds of the map
             var bounds = map.getBounds();
 
@@ -57,6 +122,16 @@
                             strokeWeight: 0.4
                         }
                     });
+
+                    // add click event listener to the marker
+                    google.maps.event.addListener(marker, 'click', (function(marker, name, operator) {
+                        return function() {
+                            var content = '<div><strong>' + (node.name || 'Name not found') + '</strong><br>' + 'Operator: ' + (node.operator || 'Operator not found') + '</div>';
+                            infowindow.setContent(content);
+                            infowindow.open(map, marker);
+                        }
+                    })(marker, node.name, node.operator));
+                    
                     markers.push(marker);
                 }
             }
@@ -111,3 +186,4 @@
 </body>
 
 </html>
+
