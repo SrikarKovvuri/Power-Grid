@@ -1,7 +1,7 @@
 # Grid Visualization Application
 
 ## Description
-This is a Flask application that visualizes a grid network on a map using data from CSV files. The application reads data from CSV files, processes it, and then visualizes it using the Google Maps API.
+This is a Flask application that visualizes a grid network and wildfire data on a map using data from CSV files and an RSS Feed.
 
 ```py
 git clone https://github.com/yourusername/grid-visualization
