@@ -5,6 +5,9 @@ import re
 from flask_cors import CORS
 import pandas as pd
 import networkx as nx
+import math
+from sklearn.neighbors import NearestNeighbors
+import numpy as np
 
 app = Flask(__name__)
 CORS(app)
@@ -70,6 +73,73 @@ def get_data():
 
 @app.route('/get_wildfires')
 def data():
+    wildfires = feed()
+            
+    for wildfire in wildfires:
+        lat1 = wildfire['latitude']
+        lon1 = wildfire['longitude']
+        distances = [haversine(lon1, lat1, lon2, lat2) for lon2, lat2 in [G.nodes[node]['pos'] for node in G.nodes()]]
+        wildfire['distances'] = distances
+         
+    return jsonify(wildfires)
+
+@app.route('/get_wildfires/<int:k>')
+def get_wildfires(k):
+    
+    wildfires = feed()
+    
+     # Prepare the data for NearestNeighbors
+    node_positions = np.array([G.nodes[node]['pos'] for node in G.nodes()])
+    wildfire_positions = np.array([(wildfire['longitude'], wildfire['latitude']) for wildfire in wildfires])
+
+    # Fit the model
+    neigh = NearestNeighbors(n_neighbors=k)
+    neigh.fit(node_positions)
+
+    # Find the k closest nodes for each wildfire
+    distances, indices = neigh.kneighbors(wildfire_positions)
+
+    k_closest_nodes = []
+    for i, wildfire in enumerate(wildfires):
+        k_closest = [{"id": nodes[j]['id'], "name": nodes[j].get('name', ''), "operator": nodes[j].get('operator', '')} for j in indices[i]]
+        k_closest_nodes.append({
+            'wildfire': wildfire,
+            'nodes': k_closest
+        })
+
+     # Find shortest paths from each closest node to all other nodes using A* algorithm
+        for closest_node in k_closest:
+            node_id = closest_node['id']
+            shortest_paths = {}
+            for target_node in G.nodes:
+                if target_node != node_id:
+                    try:
+                        path_length = nx.astar_path_length(G, node_id, target_node, weight='distance', heuristic=haversine)
+                        shortest_paths[target_node] = path_length
+                    except nx.NetworkXNoPath:
+                        pass  # No path found between the nodes
+            closest_node['shortest_paths'] = shortest_paths
+
+    return jsonify(k_closest_nodes)
+    
+
+def haversine(lon1, lat1, lon2, lat2):
+    """
+    Calculate the great circle distance in kilometers between two points 
+    on the earth (specified in decimal degrees)
+    """
+    # convert decimal degrees to radians 
+    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+
+    # haversine formula 
+    dlon = lon2 - lon1 
+    dlat = lat2 - lat1 
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a)) 
+    r = 6371 # Radius of earth in kilometers. Use 3956 for miles. Determines return value units.
+    return c * r
+
+def feed():
     # URL of the RSS feed containing wildfire incidents.
     url = "https://inciweb.nwcg.gov/incidents/rss.xml"
     # Fetch the XML content from the URL using the requests library.
@@ -109,8 +179,8 @@ def data():
                 except Exception as e:
                     # If there's an error in conversion, skip that entry.
                     pass
-                
-    return jsonify(wildfires)
+    return wildfires
+
 
 if __name__ == '__main__':
     app.run(debug=True)
