@@ -92,6 +92,35 @@ def fetch_wildfires():
                     pass
     return wildfires
 
+def get_k_nearest_neighbors(k, wildfire_positions, node_positions):
+    neigh = NearestNeighbors(n_neighbors=k)
+    neigh.fit(node_positions)
+    distances, indices = neigh.kneighbors(wildfire_positions)
+    return distances, indices
+
+def get_shortest_paths(indices, wildfire_positions, nodes, k):
+    k_closest_nodes = []
+    for i, wildfire in enumerate(wildfire_positions):
+        k_closest = [{"id": nodes[j]['id'], "name": nodes[j].get('name', ''), "operator": nodes[j].get('operator', '')} for j in indices[i]]
+        k_closest_nodes.append({
+            'wildfire': wildfire,
+            'nodes': k_closest
+        })
+
+        for closest_node in k_closest:
+            node_id = closest_node['id']
+            shortest_paths = {}
+            for target_node in G.nodes:
+                if target_node != node_id:
+                    try:
+                        path_length = nx.astar_path_length(G, node_id, target_node, weight='distance', heuristic=haversine)
+                        shortest_paths[target_node] = path_length
+                    except nx.NetworkXNoPath:
+                        pass
+            closest_node['shortest_paths'] = shortest_paths
+
+    return k_closest_nodes
+
 
 # Routes
 @app.route('/')
@@ -119,37 +148,15 @@ def get_wildfires():
 @app.route('/get_wildfires/<int:k>', methods=['GET'])
 def get_k_closest_nodes(k):
     wildfires = fetch_wildfires()
-    
-    node_positions = np.array([G.nodes[node]['pos'] for node in G.nodes()])
+
+    node_positions = np.array([G.nodes[node]['pos'] for node in G.nodes])
     wildfire_positions = np.array([(wildfire['longitude'], wildfire['latitude']) for wildfire in wildfires])
 
-    neigh = NearestNeighbors(n_neighbors=k)
-    neigh.fit(node_positions)
-    distances, indices = neigh.kneighbors(wildfire_positions)
+    distances, indices = get_k_nearest_neighbors(k, wildfire_positions, node_positions)
 
-    k_closest_nodes = []
-    for i, wildfire in enumerate(wildfires):
-        k_closest = [{"id": nodes[j]['id'], "name": nodes[j].get('name', ''), "operator": nodes[j].get('operator', '')} for j in indices[i]]
-        k_closest_nodes.append({
-            'wildfire': wildfire,
-            'nodes': k_closest
-        })
-
-        for closest_node in k_closest:
-            node_id = closest_node['id']
-            shortest_paths = {}
-            for target_node in G.nodes:
-                if target_node != node_id:
-                    try:
-                        path_length = nx.astar_path_length(G, node_id, target_node, weight='distance', heuristic=haversine)
-                        shortest_paths[target_node] = path_length
-                    except nx.NetworkXNoPath:
-                        pass
-            closest_node['shortest_paths'] = shortest_paths
+    k_closest_nodes = get_shortest_paths(indices, wildfire_positions, nodes, k)
 
     return jsonify(k_closest_nodes)
 
-
-# Main
 if __name__ == '__main__':
     app.run(debug=True)
